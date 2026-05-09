@@ -278,24 +278,40 @@ class StarRailAutoPlugin(Star):
             logger.warning(msg)
             return
 
+        # 0. 快速探测：PC 是否已开机？
+        pc_already_on = False
+        try:
+            probe = paramiko.SSHClient()
+            probe.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            probe.connect(hostname=pc_ip, port=ssh_port,
+                          username=pc_username, password=pc_password, timeout=5)
+            probe.close()
+            pc_already_on = True
+            info_log(f"✅ PC {pc_ip} 已开机，跳过 WOL 唤醒")
+        except Exception:
+            info_log(f"📡 PC {pc_ip} 未响应，需要 WOL 唤醒")
+
         # 1. WOL 唤醒
-        if event: info_log("📡 发送 WOL 唤醒信号...")
-        broadcast_ip = self._get_config("broadcast_ip", "")
-        if not broadcast_ip and pc_ip:
-            parts = pc_ip.rsplit(".", 1)
-            if len(parts) == 2:
-                broadcast_ip = f"{parts[0]}.255"
-        if not broadcast_ip:
-            broadcast_ip = "192.168.1.255"
-        wol_method = self._get_config("wol_method", "ssh")
-        nas_user = self._get_config("nas_ssh_user", "root")
-        nas_host = self._get_config("nas_ssh_host", "127.0.0.1")
-        nas_port = self._get_config("nas_ssh_port", 22)
-        nas_password = self._get_config("nas_ssh_password", "")
-        await self._send_wol(pc_mac, broadcast_ip, wol_method, nas_user,
-                             nas_host, nas_port, nas_password)
-        # 给电脑 90 秒开机进系统（部分 PC 需要更长时间）
-        await asyncio.sleep(90)
+        if pc_already_on:
+            info_log("⏭️ PC 已开机，跳过 WOL 唤醒阶段")
+        else:
+            if event: info_log("📡 发送 WOL 唤醒信号...")
+            broadcast_ip = self._get_config("broadcast_ip", "")
+            if not broadcast_ip and pc_ip:
+                parts = pc_ip.rsplit(".", 1)
+                if len(parts) == 2:
+                    broadcast_ip = f"{parts[0]}.255"
+            if not broadcast_ip:
+                broadcast_ip = "192.168.1.255"
+            wol_method = self._get_config("wol_method", "ssh")
+            nas_user = self._get_config("nas_ssh_user", "root")
+            nas_host = self._get_config("nas_ssh_host", "127.0.0.1")
+            nas_port = self._get_config("nas_ssh_port", 22)
+            nas_password = self._get_config("nas_ssh_password", "")
+            await self._send_wol(pc_mac, broadcast_ip, wol_method, nas_user,
+                                 nas_host, nas_port, nas_password)
+            # 给电脑 90 秒开机进系统（部分 PC 需要更长时间）
+            await asyncio.sleep(90)
 
         # 2. SSH 连接（带重试）
         if event: info_log("🔗 正在通过 SSH 连接电脑...")
