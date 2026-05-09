@@ -66,6 +66,8 @@
 | `/体力状态` | 查询当前体力及下次触发时间 |
 | `/清体力` | 手动触发：WOL → 计划任务执行三月七 → 关机 |
 | `/体力重置` | 清除数据重新开始 |
+| `/体力源码检查` | 通过 SSH 检查 Windows 端三月七源码 venv、入口脚本和关键依赖 |
+| `/体力源码初始化` | 通过 SSH 创建 Python 3.12 venv，并安装源码模式运行所需依赖 |
 | `/体力帮助` | 以图片形式显示指令列表（支持自定义背景） |
 
 ## 自定义帮助背景
@@ -143,3 +145,20 @@ A: 默认 `wol_method=udp` 即可，插件会优先用系统 etherwake 工具发
 3. 设置 `GUI_SESSION_MODE=rdp`；
 4. 设置 `RUNNER_MODE=python`；
 5. 填写 `PYTHON_PATH`、`M7A_REPO_PATH`、`M7A_ENTRY`（一般 GUI 用 `app.py`）。
+
+也可以在插件内执行：
+
+```text
+/体力配置 m7a_repo_path=C:\Users\he\M7A
+/体力源码初始化
+/体力源码检查
+```
+
+初始化命令会避免使用 `uv run`，改为创建 `.venv` 并通过：
+
+```text
+uv venv -p 3.12 .venv
+uv pip install ... --python .venv\Scripts\python.exe
+```
+
+来安装依赖。为避免 Windows 下 `opencc` 编译失败，初始化会排除 `requirements.txt` 中的 `opencc` 条目，并安装 `opencc-python-reimplemented` 作为兼容实现。

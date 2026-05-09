@@ -61,7 +61,7 @@ RUNNER_MODES = {"exe", "python"}
 SESSION_MODES = {"console", "rdp"}
 
 
-@register("starrail_auto", "AstrBot", "崩铁体力自动化管理", "1.4.0")
+@register("starrail_auto", "AstrBot", "崩铁体力自动化管理", "1.4.1")
 class StarRailAutoPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -155,6 +155,83 @@ class StarRailAutoPlugin(Star):
             yield event.plain_result("✅ 本地配置已删除，请重新设置")
         else:
             yield event.plain_result("ℹ️ 本地配置不存在")
+
+    @filter.command("体力源码检查")
+    async def handle_source_check(self, event: AstrMessageEvent):
+        """检查 Windows 端三月七源码运行环境"""
+        errors = self._validate_pc_ssh_config()
+        if errors:
+            yield event.plain_result("⚠️ 配置不完整：\n" + "\n".join(f"- {e}" for e in errors))
+            return
+
+        repo = self._get_config("m7a_repo_path", "")
+        if not repo:
+            yield event.plain_result("⚠️ 请先配置 m7a_repo_path，例如 /体力配置 m7a_repo_path=C:\\Users\\he\\M7A")
+            return
+
+        venv_python = self._get_config("python_path", rf"{repo}\.venv\Scripts\python.exe")
+        cmd = (
+            f'cd /d "{repo}" && '
+            f'echo [repo] %cd% && '
+            f'if exist app.py (echo [ok] app.py) else (echo [miss] app.py) && '
+            f'if exist main.py (echo [ok] main.py) else (echo [miss] main.py) && '
+            f'if exist "{venv_python}" ("{venv_python}" --version && '
+            f'"{venv_python}" -c "import pyuac; print(\'[ok] pyuac\')" 2^>nul || echo [miss] pyuac) '
+            f'else echo [miss] venv python: {venv_python}'
+        )
+        output = await asyncio.to_thread(self._pc_ssh_exec, cmd, 60)
+        yield event.plain_result("📋 三月七源码环境检查：\n" + output[-3000:])
+
+    @filter.command("体力源码初始化")
+    async def handle_source_bootstrap(self, event: AstrMessageEvent):
+        """在 Windows 端初始化三月七源码 venv（避免 uv run 使用 3.13）"""
+        errors = self._validate_pc_ssh_config()
+        if errors:
+            yield event.plain_result("⚠️ 配置不完整：\n" + "\n".join(f"- {e}" for e in errors))
+            return
+
+        repo = self._get_config("m7a_repo_path", "")
+        if not repo:
+            yield event.plain_result("⚠️ 请先配置 m7a_repo_path，例如 /体力配置 m7a_repo_path=C:\\Users\\he\\M7A")
+            return
+
+        venv_python = rf"{repo}\.venv\Scripts\python.exe"
+        entry = self._get_config("m7a_entry", "main.py")
+        yield event.plain_result("⏳ 正在通过 SSH 初始化三月七源码环境，请稍等几分钟...")
+
+        ps_filter = (
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+            '"if (Test-Path requirements.txt) { '
+            "Get-Content requirements.txt | Where-Object { $_ -notmatch '^\\s*opencc([=<>!~ ]|$)' } "
+            '| Set-Content requirements.starrail_auto.txt -Encoding UTF8 }"'
+        )
+        cmd = " && ".join([
+            f'cd /d "{repo}"',
+            'uv venv -p 3.12 .venv',
+            f'"{venv_python}" -m pip install -U pip setuptools wheel',
+            ps_filter,
+            f'uv pip install pyuac opencc-python-reimplemented --python "{venv_python}"',
+            f'if exist requirements.starrail_auto.txt (uv pip install -r requirements.starrail_auto.txt --python "{venv_python}") else (echo [warn] requirements.txt not found, skipped)',
+            f'"{venv_python}" --version',
+            f'"{venv_python}" -c "import pyuac; import opencc; print(\'BOOTSTRAP_OK\')"',
+        ])
+        output = await asyncio.to_thread(self._pc_ssh_exec, cmd, 1800)
+
+        if "BOOTSTRAP_OK" in output:
+            self._save_local_config({
+                "runner_mode": "python",
+                "python_path": venv_python,
+                "m7a_repo_path": repo,
+                "m7a_entry": entry,
+                "gui_session_mode": "rdp",
+            })
+            yield event.plain_result(
+                "✅ 三月七源码环境初始化完成，已自动写入插件配置：\n"
+                f"runner_mode=python\npython_path={venv_python}\n"
+                f"m7a_repo_path={repo}\nm7a_entry={entry}\ngui_session_mode=rdp"
+            )
+        else:
+            yield event.plain_result("❌ 初始化可能失败，最后输出：\n" + output[-3000:])
 
     @filter.command("体力帮助")
     async def handle_help(self, event: AstrMessageEvent):
@@ -666,6 +743,47 @@ class StarRailAutoPlugin(Star):
         except Exception:
             pass
         return default
+
+    def _validate_pc_ssh_config(self) -> list[str]:
+        """检查远程 Windows SSH 所需配置"""
+        errors = []
+        required = {
+            "pc_ip": "电脑 IP（pc_ip）",
+            "pc_username": "Windows 用户名（pc_username）",
+            "pc_password": "Windows 密码（pc_password）",
+        }
+        for key, label in required.items():
+            if not self._get_config(key, ""):
+                errors.append(f"缺少 {label}")
+        return errors
+
+    def _pc_ssh_exec(self, command: str, timeout: int = 120) -> str:
+        """在 Windows PC 上执行命令并返回 stdout/stderr"""
+        pc_ip = self._get_config("pc_ip", "")
+        pc_username = self._get_config("pc_username", "")
+        pc_password = self._get_config("pc_password", "")
+        ssh_port = self._get_config("ssh_port", 22)
+
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(hostname=pc_ip, port=ssh_port,
+                        username=pc_username, password=pc_password, timeout=20)
+            _, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+            raw_out = stdout.read()
+            raw_err = stderr.read()
+            try:
+                out = raw_out.decode("gbk", errors="ignore")
+                err = raw_err.decode("gbk", errors="ignore")
+            except Exception:
+                out = raw_out.decode("utf-8", errors="ignore")
+                err = raw_err.decode("utf-8", errors="ignore")
+            return (out + ("\n" + err if err else "")).strip()
+        finally:
+            try:
+                ssh.close()
+            except Exception:
+                pass
 
     def _normalize_tasks(self, value) -> list[str]:
         """规范并过滤三月七助手任务列表"""
