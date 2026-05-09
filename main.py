@@ -244,7 +244,8 @@ class StarRailAutoPlugin(Star):
 
         # 1. WOL 唤醒
         if event: info_log("📡 发送 WOL 唤醒信号...")
-        await self._send_wol(pc_mac, pc_ip)
+        broadcast_ip = self._get_config("broadcast_ip", "192.168.1.255")
+        await self._send_wol(pc_mac, broadcast_ip)
         await asyncio.sleep(45)
 
         # 2. SSH 连接

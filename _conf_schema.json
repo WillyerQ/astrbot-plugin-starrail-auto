@@ -11,6 +11,12 @@
     "hint": "如 AA:BB:CC:DD:EE:FF",
     "obvious_hint": true
   },
+  "broadcast_ip": {
+    "description": "WOL 广播地址",
+    "type": "string",
+    "default": "192.168.1.255",
+    "hint": "根据你的局域网网段填写。小米路由器默认 192.168.31.255，一般路由器 192.168.1.255"
+  },
   "pc_username": {
     "description": "Windows 登录用户名",
     "type": "string",
