@@ -247,8 +247,9 @@ class StarRailAutoPlugin(Star):
         broadcast_ip = self._get_config("broadcast_ip", "192.168.1.255")
         wol_method = self._get_config("wol_method", "udp")
         nas_user = self._get_config("nas_ssh_user", "root")
+        nas_host = self._get_config("nas_ssh_host", "127.0.0.1")
         nas_port = self._get_config("nas_ssh_port", 22)
-        await self._send_wol(pc_mac, broadcast_ip, wol_method, nas_user, nas_port)
+        await self._send_wol(pc_mac, broadcast_ip, wol_method, nas_user, nas_host, nas_port)
         await asyncio.sleep(45)
 
         # 2. SSH 连接
@@ -440,7 +441,7 @@ class StarRailAutoPlugin(Star):
     @staticmethod
     async def _send_wol(mac: str, broadcast_ip: str = "192.168.1.255",
                         method: str = "udp", nas_user: str = "root",
-                        nas_port: int = 22):
+                        nas_host: str = "127.0.0.1", nas_port: int = 22):
         """发送 WOL 魔术包，支持 udp 直发和 ssh 宿主机转发"""
         mac_clean = mac.replace(":", "").replace("-", "").replace(" ", "")
         if len(mac_clean) != 12:
@@ -452,7 +453,7 @@ class StarRailAutoPlugin(Star):
             try:
                 ssh = paramiko.SSHClient()
                 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                ssh.connect("127.0.0.1", port=nas_port, username=nas_user, timeout=5)
+                ssh.connect(nas_host, port=nas_port, username=nas_user, timeout=5)
                 _, out, _ = ssh.exec_command(f"which etherwake && {cmd}", timeout=10)
                 result = out.read().decode().strip()
                 ssh.close()

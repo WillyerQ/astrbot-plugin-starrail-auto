@@ -29,6 +29,12 @@
     "type": "string",
     "default": "root"
   },
+  "nas_ssh_host": {
+    "description": "NAS SSH 地址（WOL方式为ssh时需要）",
+    "type": "string",
+    "default": "127.0.0.1",
+    "hint": "一般填 127.0.0.1 即可（容器回连宿主机），如不行改为 NAS 内网 IP"
+  },
   "nas_ssh_port": {
     "description": "NAS SSH 端口（WOL方式为ssh时需要）",
     "type": "int",
