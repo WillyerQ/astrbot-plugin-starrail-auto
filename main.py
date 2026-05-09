@@ -95,7 +95,7 @@ class StarRailAutoPlugin(Star):
         stamina_needed = threshold - stamina
         if stamina_needed <= 0:
             yield event.plain_result(f"当前体力 {stamina}，已达到阈值 {threshold}，立即触发清体力！")
-            asyncio.create_task(self._execute_cleanup(None))
+            asyncio.create_task(self._execute_cleanup_task(None))
             return
         wait_minutes = stamina_needed * 6
         self.trigger_time = self.last_update_time + timedelta(minutes=wait_minutes)
@@ -111,7 +111,7 @@ class StarRailAutoPlugin(Star):
     async def handle_cleanup(self, event: AstrMessageEvent):
         """手动触发清体力"""
         yield event.plain_result("正在执行清体力任务...")
-        asyncio.create_task(self._execute_cleanup(None))
+        asyncio.create_task(self._execute_cleanup_task(None))
 
     @filter.command("体力重置")
     async def handle_reset(self, event: AstrMessageEvent):
@@ -172,7 +172,7 @@ class StarRailAutoPlugin(Star):
                 yield event.plain_result("还没设置体力，请先告诉体力值（或 /体力设置 <数值>）")
             else:
                 yield event.plain_result(f"当前体力 {self.current_stamina}，正在执行...")
-                asyncio.create_task(self._execute_cleanup(None))
+                asyncio.create_task(self._execute_cleanup_task(None))
 
     # ========== 体力设置逻辑 ==========
 
@@ -200,7 +200,7 @@ class StarRailAutoPlugin(Star):
 
         if stamina_needed <= 0:
             yield event.plain_result(f"当前体力 {stamina}，已达到阈值 {threshold}，立即触发清体力！")
-            asyncio.create_task(self._execute_cleanup(None))
+            asyncio.create_task(self._execute_cleanup_task(None))
             return
 
         wait_minutes = stamina_needed * 6
@@ -498,6 +498,11 @@ class StarRailAutoPlugin(Star):
             error_log(f"插件执行崩溃: {e}\
 {tb}")
 
+    async def _execute_cleanup_task(self, event=None):
+        """消耗 _execute_cleanup 生成器, 供 create_task 使用"""
+        async for _ in self._execute_cleanup(event):
+            pass
+
     # ========== 定时任务 ==========
 
     def _schedule_trigger(self):
@@ -506,14 +511,14 @@ class StarRailAutoPlugin(Star):
         now = datetime.now(CST)
         delay = (self.trigger_time - now).total_seconds()
         if delay <= 0:
-            asyncio.create_task(self._execute_cleanup(None))
+            asyncio.create_task(self._execute_cleanup_task(None))
             return
         if self.trigger_task and not self.trigger_task.done():
             self.trigger_task.cancel()
         async def delayed():
             await asyncio.sleep(delay)
             info_log("定时触发：执行清体力任务")
-            await self._execute_cleanup(None)
+            async for _ in self._execute_cleanup(None): pass
         self.trigger_task = asyncio.create_task(delayed())
         info_log(f"定时任务已设置，{delay/60:.1f} 分钟后触发")
 
