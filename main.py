@@ -571,7 +571,7 @@ class StarRailAutoPlugin(Star):
                 error_log("SSH WOL 失败: 未配置 NAS_SSH_HOST（需填同一子网的机器 IP）")
                 return
             # etherwake 不需要 -i 指定网段，自动广播到本地子网
-            cmd = f"etherwake {mac_clean} 2>/dev/null || wakeonlan {mac}"
+            cmd = f"wakeonlan -i {broadcast_ip} {mac} 2>/dev/null || etherwake {mac_clean}"
             try:
                 ssh = paramiko.SSHClient()
                 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -580,8 +580,8 @@ class StarRailAutoPlugin(Star):
                             password=pwd, timeout=5)
                 # 先尝试安装 etherwake（如果缺失）
                 _, _, _ = ssh.exec_command(
-                    "which etherwake >/dev/null 2>&1 || "
-                    f"(apt-get update -qq && apt-get install -y -qq etherwake 2>&1)",
+                    "which wakeonlan >/dev/null 2>&1 || "
+                    f"(apt-get update -qq && apt-get install -y -qq wakeonlan etherwake 2>&1)",
                     timeout=30
                 )
                 stdin, stdout, stderr = ssh.exec_command(cmd, timeout=10)
