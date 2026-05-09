@@ -390,7 +390,7 @@ class StarRailAutoPlugin(Star):
 
             # 创建新任务
             stdin, stdout, stderr = ssh.exec_command(
-                f'schtasks /create /tn "{schtasks_name}" /tr "{task_cmd}" '
+                f'schtasks /create /tn "{schtasks_name}" /tr {task_cmd} '
                 f'/sc once /st 00:00 /ru "{safe_username}" /rp "{safe_password}" /rl HIGHEST /f',
                 timeout=20
             )
