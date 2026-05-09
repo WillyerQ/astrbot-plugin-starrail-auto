@@ -6,9 +6,11 @@ SSH 运行三月七助手清体力，每日自动重置。
 兼容 WOL 唤醒后处于登录界面的场景，无需设置自动登录。
 """
 import asyncio
+import os
 import paramiko
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from PIL import Image, ImageDraw, ImageFont
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -52,11 +54,18 @@ class StarRailAutoPlugin(Star):
             yield event.plain_result("正在执行清体力任务...")
             for result in self._execute_cleanup(event):
                 yield result
-        elif message_str == "/体力重置":
-            self.current_stamina = None
-            self.last_update_time = None
-            self.trigger_time = None
-            yield event.plain_result("体力数据已重置，请用 /体力设置 <数值> 设置初始值")
+        elif message_str in ("/体力重置", "/体力帮助"):
+            if message_str == "/体力重置":
+                self.current_stamina = None
+                self.last_update_time = None
+                self.trigger_time = None
+                yield event.plain_result("体力数据已重置，请用 /体力设置 <数值> 设置初始值")
+            else:
+                img_path = await self._generate_help_image()
+                if img_path and os.path.exists(img_path):
+                    yield event.image_result(img_path)
+                else:
+                    yield event.plain_result(self._get_help_text())
         else:
             yield event.plain_result("未知指令。可用：/体力设置、/体力状态、/清体力、/体力重置")
 
@@ -409,6 +418,114 @@ class StarRailAutoPlugin(Star):
             logger.info(f"WOL 已发送至 {mac}")
         except Exception as e:
             logger.error(f"WOL 失败: {e}")
+
+    def _get_help_text(self) -> str:
+        return (
+            "📋 **崩铁体力自动化 - 指令列表**
+
+"
+            "/体力设置 <数值>  - 设置当前体力并计算触发时间
+"
+            "/体力状态         - 查看体力记录和下次触发时间
+"
+            "/清体力           - 手动唤醒电脑执行清体力任务
+"
+            "/体力重置         - 清除所有体力数据重新开始
+"
+            "/体力帮助         - 显示本帮助
+
+"
+            "💡 也可以对我说「跑崩铁」「清体力啦」来触发"
+        )
+
+    async def _generate_help_image(self) -> Optional[str]:
+        """生成帮助图片，支持自定义背景"""
+        try:
+            # 插件目录路径
+            plugin_dir = os.path.dirname(os.path.abspath(__file__))
+            bg_dir = os.path.join(plugin_dir, "backgrounds")
+
+            # 找中文字体
+            font_path = None
+            for fp in [
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            ]:
+                if os.path.exists(fp):
+                    font_path = fp
+                    break
+            if not font_path:
+                import subprocess
+                r = subprocess.run(["fc-list", ":lang=zh", "-f", "%{file}
+"],
+                                   capture_output=True, text=True, timeout=5)
+                fonts = [f.strip() for f in r.stdout.strip().split("
+") if f.strip()]
+                if fonts:
+                    font_path = fonts[0]
+
+            if not font_path:
+                return None
+
+            # 检查背景目录是否有图片
+            bg_image = None
+            if os.path.isdir(bg_dir):
+                for f in sorted(os.listdir(bg_dir)):
+                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                        bg_image = os.path.join(bg_dir, f)
+                        break
+
+            W, H = 600, 420
+
+            if bg_image:
+                bg = Image.open(bg_image).convert("RGB")
+                bg = bg.resize((W, H), Image.LANCZOS)
+                img = bg
+            else:
+                img = Image.new("RGB", (W, H), (25, 25, 35))
+
+            draw = ImageDraw.Draw(img)
+            tf = ImageFont.truetype(font_path, 28)
+            sf = ImageFont.truetype(font_path, 16)
+            cf = ImageFont.truetype(font_path, 18)
+            nf = ImageFont.truetype(font_path, 14)
+
+            # 半透明遮罩（背景图时用）
+            if bg_image:
+                overlay = Image.new("RGBA", (W, H), (0, 0, 0, 140))
+                img.paste(overlay, (0, 0), overlay)
+
+            draw.text((30, 25), "🌀 崩铁体力自动化", fill=(255, 200, 100), font=tf)
+            draw.text((30, 60), "指令列表", fill=(180, 180, 200), font=sf)
+            draw.rectangle([(30, 85), (570, 87)], fill=(80, 80, 100))
+
+            cmds = [
+                ("/体力设置 <数值>", " 设置当前体力，自动计算到阈值的时间"),
+                ("/体力状态",         " 查看体力记录及下次触发时间"),
+                ("/清体力",           " 手动唤醒电脑执行清体力任务"),
+                ("/体力重置",         " 清除所有体力数据重新开始"),
+                ("/体力帮助",         " 显示本帮助"),
+            ]
+            y = 110
+            for c, d in cmds:
+                draw.text((35, y), c, fill=(100, 200, 255), font=cf)
+                draw.text((35, y + 24), d, fill=(180, 180, 200), font=nf)
+                y += 55
+
+            draw.rectangle([(30, y + 5), (570, y + 45)], fill=(40, 45, 60))
+            draw.text((40, y + 12), "💡 也可以对我说「跑崩铁」「清体力啦」来触发",
+                      fill=(255, 200, 100), font=nf)
+
+            output_path = "/tmp/starrail_help.png"
+            img.save(output_path, "PNG")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"生成帮助图片失败: {e}")
+            return None
 
     async def terminate(self):
         if self.trigger_task and not self.trigger_task.done():
