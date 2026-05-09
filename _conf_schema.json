@@ -59,8 +59,46 @@
   "march7th_path": {
     "description": "三月七助手的完整路径",
     "type": "string",
-    "hint": "如 C:\\Program Files\\March7thAssistant\\March7th Assistant.exe",
+    "hint": "runner_mode=exe 时使用，如 C:\\Program Files\\March7thAssistant\\March7th Launcher.exe",
     "obvious_hint": true
+  },
+  "runner_mode": {
+    "description": "三月七执行模式",
+    "type": "string",
+    "default": "exe",
+    "options": ["exe", "python"],
+    "hint": "exe=运行打包版；python=运行源码脚本（适合 RDP 场景）"
+  },
+  "python_path": {
+    "description": "Python 解释器路径",
+    "type": "string",
+    "default": "python",
+    "hint": "runner_mode=python 时使用，如 C:\\Python311\\python.exe"
+  },
+  "m7a_repo_path": {
+    "description": "三月七源码目录",
+    "type": "string",
+    "default": "",
+    "hint": "runner_mode=python 时使用，如 C:\\Apps\\March7thAssistant"
+  },
+  "m7a_entry": {
+    "description": "三月七源码入口脚本",
+    "type": "string",
+    "default": "app.py",
+    "hint": "runner_mode=python 时使用，CLI任务可填 main.py，GUI可填 app.py"
+  },
+  "gui_runner_path": {
+    "description": "远程临时启动脚本路径",
+    "type": "string",
+    "default": "C:\\Users\\Public\\starrail_auto_run.cmd",
+    "hint": "插件会写入该 .cmd 并通过计划任务启动"
+  },
+  "gui_session_mode": {
+    "description": "桌面会话模式",
+    "type": "string",
+    "default": "console",
+    "options": ["console", "rdp"],
+    "hint": "console=仅本地会话；rdp=接受 RDP 会话（含断开）"
   },
   "starrail_path": {
     "description": "崩坏星穹铁道游戏路径",

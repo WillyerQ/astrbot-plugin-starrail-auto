@@ -57,8 +57,11 @@ def error_log(msg: str):
 # 时区
 CST = timezone(timedelta(hours=8))
 
+RUNNER_MODES = {"exe", "python"}
+SESSION_MODES = {"console", "rdp"}
 
-@register("starrail_auto", "AstrBot", "崩铁体力自动化管理", "1.2.0")
+
+@register("starrail_auto", "AstrBot", "崩铁体力自动化管理", "1.4.0")
 class StarRailAutoPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -263,6 +266,12 @@ class StarRailAutoPlugin(Star):
         pc_username = self._get_config("pc_username", "")
         pc_password = self._get_config("pc_password", "")
         march7th_path = self._get_config("march7th_path", "")
+        runner_mode = self._get_config("runner_mode", "exe")
+        python_path = self._get_config("python_path", "python")
+        m7a_repo_path = self._get_config("m7a_repo_path", "")
+        m7a_entry = self._get_config("m7a_entry", "app.py")
+        gui_runner_path = self._get_config("gui_runner_path", r"C:\Users\Public\starrail_auto_run.cmd")
+        gui_session_mode = self._get_config("gui_session_mode", "console")
         ssh_port = self._get_config("ssh_port", 22)
 
         admin_id = None
@@ -272,10 +281,12 @@ class StarRailAutoPlugin(Star):
             except Exception:
                 admin_id = None
 
-        if not pc_mac or not pc_ip:
-            msg = "⚠️ 未配置电脑信息，请在 WebUI 中填写 PC_IP 和 PC_MAC"
-            if event: info_log(msg)
-            logger.warning(msg)
+        config_errors = self._validate_runtime_config()
+        if config_errors:
+            msg = "⚠️ 配置不完整：\n" + "\n".join(f"- {e}" for e in config_errors)
+            info_log(msg)
+            if event:
+                yield event.plain_result(msg)
             return
 
         # 0. 快速探测：PC 是否已开机？
@@ -337,63 +348,119 @@ class StarRailAutoPlugin(Star):
             raise Exception(f"SSH 连接失败（已重试3次）")
 
         try:
-            # 解析三月七目录和更新器路径
-            march7th_dir = march7th_path.rsplit("\\", 1)[0] if "\\" in march7th_path else march7th_path.rsplit("/", 1)[0]
-            updater_path = march7th_dir + "\\March7th Updater.exe"
+            has_session, session_text = self._has_supported_desktop_session(ssh, gui_session_mode)
+            if not has_session:
+                msg = (
+                    "❌ 当前 Windows 没有可用的已登录桌面会话，GUI 游戏无法启动。"
+                    "console 模式请手动登录/锁屏；rdp 模式请先 RDP 登录一次并保持会话不断开注销。"
+                )
+                info_log(msg)
+                if session_text:
+                    debug_log("Windows 会话状态:\n" + session_text)
+                if event:
+                    yield event.plain_result(msg)
+                ssh.close()
+                return
 
-            # 3. 检查更新器是否存在（不运行 GUI 程序，锁屏下会卡住）
-            if event: info_log("🔍 检查更新器是否存在...")
-            stdin, stdout, stderr = ssh.exec_command(
-                f'if exist "{updater_path}" (echo EXISTS) else (echo NOT_FOUND)',
-                timeout=10
-            )
-            try:
-                exit_status = stdout.channel.recv_exit_status(timeout=10)
-                check_result = stdout.read().decode("utf-8", errors="ignore").strip()
-            except Exception:
-                check_result = "TIMEOUT"
-                stdout.channel.close()
-                stderr.channel.close()
-
-            if check_result == "EXISTS":
-                if event: info_log("ℹ️ 更新器存在（锁屏下跳过运行，在主任务中自动更新）")
-            else:
-                if event: info_log("ℹ️ 未找到独立更新器，跳过")
-
-            # 4. 构建任务命令
-            selected_tasks = self._get_config("selected_tasks", ["main"])
-            if isinstance(selected_tasks, list) and len(selected_tasks) > 0:
-                task_args = " ".join(selected_tasks)
-                task_cmd = f'{march7th_path} {task_args}'
-            else:
-                task_cmd = f'{march7th_path} main'
-
+            selected_tasks = self._normalize_tasks(self._get_config("selected_tasks", ["main"]))
+            task_arg_str = " ".join(selected_tasks)
+            task_names = {
+                "main": "完整运行", "daily": "每日实训", "weekly": "周常",
+                "universe_gui": "模拟宇宙", "forgottenhall": "忘却之庭",
+                "echo_of_war": "历战余响", "assignment": "委托", "quest": "任务"
+            }
             if event:
-                task_names = {
-                    "main": "完整运行", "daily": "每日实训", "weekly": "周常",
-                    "universe_gui": "模拟宇宙", "forgottenhall": "忘却之庭",
-                    "echo_of_war": "历战余响", "assignment": "委托", "quest": "任务"
-                }
-                labels = [task_names.get(t, t) for t in (selected_tasks if isinstance(selected_tasks, list) else ["main"])]
+                labels = [task_names.get(t, t) for t in selected_tasks]
                 info_log(f"⚙️ 即将执行：{' → '.join(labels)}")
 
-            # 5. 通过计划任务运行
+            if runner_mode == "python":
+                march7th_dir = m7a_repo_path.rstrip("\\/")
+                runner_script = self._build_runner_script(
+                    runner_mode=runner_mode,
+                    workdir=march7th_dir,
+                    runner_path=python_path,
+                    entry_path=m7a_entry,
+                    task_args=task_arg_str,
+                )
+            else:
+                march7th_dir = march7th_path.rsplit("\\", 1)[0] if "\\" in march7th_path else march7th_path.rsplit("/", 1)[0]
+                updater_path = march7th_dir + "\\March7th Updater.exe"
+
+                # 3. 检查更新器是否存在（不运行 GUI 程序，锁屏下会卡住）
+                if event:
+                    info_log("🔍 检查更新器是否存在...")
+                stdin, stdout, stderr = ssh.exec_command(
+                    f'if exist "{updater_path}" (echo EXISTS) else (echo NOT_FOUND)',
+                    timeout=10
+                )
+                try:
+                    stdout.channel.recv_exit_status(timeout=10)
+                    check_result = stdout.read().decode("utf-8", errors="ignore").strip()
+                except Exception:
+                    check_result = "TIMEOUT"
+                    stdout.channel.close()
+                    stderr.channel.close()
+
+                if check_result == "EXISTS":
+                    if event:
+                        info_log("ℹ️ 更新器存在（锁屏下跳过运行，在主任务中自动更新）")
+                else:
+                    if event:
+                        info_log("ℹ️ 未找到独立更新器，跳过")
+
+                runner_script = self._build_runner_script(
+                    runner_mode=runner_mode,
+                    workdir=march7th_dir,
+                    runner_path=march7th_path,
+                    entry_path=m7a_entry,
+                    task_args=task_arg_str,
+                )
+
+                # 3. 检查更新器是否存在（不运行 GUI 程序，锁屏下会卡住）
+                if event:
+                    info_log("🔍 检查更新器是否存在...")
+                stdin, stdout, stderr = ssh.exec_command(
+                    f'if exist "{updater_path}" (echo EXISTS) else (echo NOT_FOUND)',
+                    timeout=10
+                )
+                try:
+                    stdout.channel.recv_exit_status(timeout=10)
+                    check_result = stdout.read().decode("utf-8", errors="ignore").strip()
+                except Exception:
+                    check_result = "TIMEOUT"
+                    stdout.channel.close()
+                    stderr.channel.close()
+
+                if check_result == "EXISTS":
+                    if event:
+                        info_log("ℹ️ 更新器存在（锁屏下跳过运行，在主任务中自动更新）")
+                else:
+                    if event:
+                        info_log("ℹ️ 未找到独立更新器，跳过")
+
+                runner_script = self._build_runner_script(
+                    runner_mode=runner_mode,
+                    workdir=march7th_dir,
+                    runner_path=march7th_path,
+                    entry_path=m7a_entry,
+                    task_args=task_arg_str,
+                )
+
+            # 5. 写入临时启动脚本
             schtasks_name = "StarRailAutoTemp"
+            self._write_remote_text_file(ssh, gui_runner_path, runner_script)
+            safe_runner_path = self._escape_win_cmd_arg(gui_runner_path)
             safe_password = self._escape_win_cmd_arg(pc_password)
             safe_username = self._escape_win_cmd_arg(pc_username)
 
             # 两步法：先创建交互式任务(/it)，再绑定用户(/change)
-            # 这样 GUI 程序（March7th Launcher）才能在用户桌面显示
+            # 这样 GUI 程序才能在用户桌面显示
             cmds = " & ".join([
-                # 1. 删除旧任务（失败忽略）
                 f'schtasks /delete /tn "{schtasks_name}" /f 2>nul',
-                # 2. 创建交互式任务
-                f'schtasks /create /tn "{schtasks_name}" /tr "{task_cmd}" '
+                f'schtasks /create /tn "{schtasks_name}" /tr "cmd.exe /c call ""{safe_runner_path}""" '
                 f'/sc once /st 23:59 /it /f',
-                # 3. 绑定到指定用户
                 f'schtasks /change /tn "{schtasks_name}" '
                 f'/ru "{safe_username}" /rp "{safe_password}"',
-                # 4. 立即运行
                 f'schtasks /run /tn "{schtasks_name}"',
             ])
             stdin, stdout, stderr = ssh.exec_command(cmds, timeout=30)
@@ -599,6 +666,107 @@ class StarRailAutoPlugin(Star):
         except Exception:
             pass
         return default
+
+    def _normalize_tasks(self, value) -> list[str]:
+        """规范并过滤三月七助手任务列表"""
+        if isinstance(value, str):
+            value = [x.strip() for x in value.replace("，", ",").split(",") if x.strip()]
+        if not isinstance(value, list):
+            value = ["main"]
+        tasks = []
+        for item in value:
+            item = str(item).strip()
+            if item in {"main", "daily", "weekly", "universe_gui", "forgottenhall", "echo_of_war", "assignment", "quest"} and item not in tasks:
+                tasks.append(item)
+        return tasks or ["main"]
+
+    def _validate_runtime_config(self) -> list[str]:
+        """检查执行所需配置"""
+        errors = []
+        required = {
+            "pc_ip": "电脑 IP（pc_ip）",
+            "pc_mac": "电脑 MAC（pc_mac）",
+            "pc_username": "Windows 用户名（pc_username）",
+            "pc_password": "Windows 密码（pc_password）",
+        }
+        for key, label in required.items():
+            if not self._get_config(key, ""):
+                errors.append(f"缺少 {label}")
+
+        runner_mode = self._get_config("runner_mode", "exe")
+        if runner_mode not in RUNNER_MODES:
+            errors.append("runner_mode 只能是 exe 或 python")
+        if runner_mode == "exe":
+            if not self._get_config("march7th_path", ""):
+                errors.append("runner_mode=exe 时必须填写 march7th_path")
+        elif runner_mode == "python":
+            if not self._get_config("m7a_repo_path", ""):
+                errors.append("runner_mode=python 时必须填写 m7a_repo_path")
+            if not self._get_config("python_path", "python"):
+                errors.append("runner_mode=python 时必须填写 python_path")
+
+        gui_session_mode = self._get_config("gui_session_mode", "console")
+        if gui_session_mode not in SESSION_MODES:
+            errors.append("gui_session_mode 只能是 console 或 rdp")
+        return errors
+
+    @staticmethod
+    def _escape_batch_value(value: str) -> str:
+        """转义批处理中的特殊字符"""
+        return str(value).replace("^", "^^").replace("%", "%%").replace("&", "^&")
+
+    @classmethod
+    def _build_runner_script(cls, runner_mode: str, workdir: str, runner_path: str,
+                             entry_path: str, task_args: str) -> str:
+        """生成远程临时启动脚本"""
+        safe_workdir = cls._escape_batch_value(workdir)
+        safe_runner_path = cls._escape_batch_value(runner_path)
+        safe_entry = cls._escape_batch_value(entry_path) if entry_path else ""
+        safe_task_args = cls._escape_batch_value(task_args)
+
+        if runner_mode == "python":
+            return (
+                "@echo off\r\n"
+                "setlocal\r\n"
+                f'cd /d "{safe_workdir}"\r\n'
+                f'start "StarRailAuto" /wait "{safe_runner_path}" "{safe_entry}" {safe_task_args} --exit\r\n'
+                "exit /b %ERRORLEVEL%\r\n"
+            )
+
+        return (
+            "@echo off\r\n"
+            "setlocal\r\n"
+            f'cd /d "{safe_workdir}"\r\n'
+            f'start "StarRailAuto" /wait "{safe_runner_path}" {safe_task_args} --exit\r\n'
+            "exit /b %ERRORLEVEL%\r\n"
+        )
+
+    @staticmethod
+    def _write_remote_text_file(ssh: paramiko.SSHClient, remote_path: str, content: str):
+        """通过 SFTP 写入远程文件"""
+        sftp = ssh.open_sftp()
+        try:
+            with sftp.file(remote_path, "w") as f:
+                f.write(content)
+        finally:
+            sftp.close()
+
+    @classmethod
+    def _has_supported_desktop_session(cls, ssh: paramiko.SSHClient, mode: str = "console") -> tuple[bool, str]:
+        """检测是否存在可用的已登录桌面会话。"""
+        def _run(cmd: str) -> str:
+            _, stdout, _ = ssh.exec_command(cmd, timeout=10)
+            return stdout.read().decode("gbk", errors="ignore")
+
+        try:
+            text = (_run("query user") + "\n" + _run("qwinsta")).strip()
+            normalized = text.lower()
+            console_tokens = (" active", "console", " 运行中", " 活动")
+            rdp_tokens = console_tokens + ("rdp-tcp", " disc", " disconnected", " 已断开", " 断开")
+            tokens = rdp_tokens if mode == "rdp" else console_tokens
+            return any(token in normalized for token in tokens), text
+        except Exception as e:
+            return False, f"检测桌面会话失败: {e}"
 
     @staticmethod
     async def _send_wol(mac: str, broadcast_ip: str = "",

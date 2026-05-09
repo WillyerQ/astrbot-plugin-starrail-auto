@@ -43,7 +43,13 @@
 | NAS_SSH_PASSWORD | string | ❌ | 仅WOL_METHOD=ssh时，NAS SSH密码 |
 | PC_USERNAME | string | ✅ | Windows登录用户名 |
 | PC_PASSWORD | string | ✅ | Windows登录密码 |
-| MARCH7TH_PATH | string | ✅ | 三月七助手exe完整路径 |
+| MARCH7TH_PATH | string | ✅ | runner_mode=exe 时使用，三月七助手 exe 完整路径 |
+| RUNNER_MODE | string | ❌ | 执行模式：`exe`=运行打包版，`python`=运行源码脚本 |
+| PYTHON_PATH | string | ❌ | runner_mode=python 时的 Python 解释器路径，默认 `python` |
+| M7A_REPO_PATH | string | ❌ | runner_mode=python 时的三月七源码目录 |
+| M7A_ENTRY | string | ❌ | runner_mode=python 时的入口脚本，默认 `app.py` |
+| GUI_RUNNER_PATH | string | ❌ | 远程临时启动脚本路径，默认 `C:\Users\Public\starrail_auto_run.cmd` |
+| GUI_SESSION_MODE | string | ❌ | 桌面会话模式：`console`（默认）/`rdp` |
 | STARRAIL_PATH | string | ❌ | 崩铁游戏路径 |
 | STAMINA_THRESHOLD | int | ❌ | 体力阈值，默认160 |
 | SSH_PORT | int | ❌ | SSH端口，默认22 |
@@ -97,11 +103,11 @@ astrbot_plugin_starrail_automation/
 ```
 插件 → SSH → Windows PC
   ↓
-schtasks /create（以用户身份，最高权限）
+通过批处理脚本启动（支持 exe 或源码）
   ↓
-schtasks /run → 在用户桌面会话（Session 1）中启动三月七
+schtasks /create /it /ru /rp /rl HIGHEST
   ↓
-即使控制台锁屏（Win+L），进程仍在用户会话中运行
+schtasks /run → 在已登录的用户桌面会话中启动三月七
   ↓
 PyAutoGUI 可正常截屏+模拟点击
 ```
@@ -114,7 +120,7 @@ PyAutoGUI 可正常截屏+模拟点击
 
 1. 目标 PC 需一直插电
 2. Windows **必须开启 OpenSSH Server**（设置 → 应用 → 可选功能 → 添加）
-3. **无需设置自动登录**。插件通过计划任务 `schtasks /ru /rp` 以指定用户身份运行，可兼容 WOL 唤醒后的登录界面状态
+3. GUI 自动化要求目标 Windows 用户已经登录并处于桌面或锁屏状态。若要用 RDP，会话需先登录一次再断开，不要注销。
 4. 建议关闭睡眠和休眠：`powercfg /change standby-timeout-ac 0`
 5. 三月七助手要求游戏分辨率 **1920×1080**，不支持 HDR
 6. 重启 AstrBot 后体力数据会丢失，需重新 `/体力设置`
@@ -127,3 +133,13 @@ A: 检查日志显示的是 `etherwake` 还是 `原始 UDP`。如果是 `原始 
 
 **Q: Docker 容器网络怎么配？**
 A: 默认 `wol_method=udp` 即可，插件会优先用系统 etherwake 工具发送，无需 host 网络模式。如果仍失败，可尝试 `wol_method=ssh` 通过宿主机转发。
+
+## RDP + 源码模式
+
+如果三月七助手源码支持 RDP 场景，推荐这样配置：
+
+1. 先用 RDP 登录目标 Windows 用户一次；
+2. 不要注销，只断开 RDP；
+3. 设置 `GUI_SESSION_MODE=rdp`；
+4. 设置 `RUNNER_MODE=python`；
+5. 填写 `PYTHON_PATH`、`M7A_REPO_PATH`、`M7A_ENTRY`（一般 GUI 用 `app.py`）。
