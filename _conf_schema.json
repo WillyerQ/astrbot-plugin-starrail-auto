@@ -1,0 +1,63 @@
+{
+  "pc_ip": {
+    "description": "天选 6 Pro 的内网 IP 地址",
+    "type": "string",
+    "hint": "如 192.168.1.100",
+    "obvious_hint": true
+  },
+  "pc_mac": {
+    "description": "天选 6 Pro 的 MAC 地址（WOL 唤醒用）",
+    "type": "string",
+    "hint": "如 AA:BB:CC:DD:EE:FF",
+    "obvious_hint": true
+  },
+  "pc_username": {
+    "description": "Windows 登录用户名",
+    "type": "string",
+    "hint": "用于自动登录配置和 SSH 连接"
+  },
+  "pc_password": {
+    "description": "Windows 登录密码",
+    "type": "string",
+    "hint": "用于自动登录配置和 SSH 连接，仅本地存储"
+  },
+  "march7th_path": {
+    "description": "三月七助手的完整路径",
+    "type": "string",
+    "hint": "如 C:\\Program Files\\March7thAssistant\\March7th Assistant.exe",
+    "obvious_hint": true
+  },
+  "starrail_path": {
+    "description": "崩坏星穹铁道游戏路径",
+    "type": "string",
+    "hint": "如 C:\\Program Files\\Star Rail\\StarRail.exe"
+  },
+  "stamina_threshold": {
+    "description": "体力触发阈值",
+    "type": "int",
+    "default": 160,
+    "hint": "体力达到此值时触发清体力任务"
+  },
+  "ssh_port": {
+    "description": "Windows SSH 端口",
+    "type": "int",
+    "default": 22,
+    "hint": "OpenSSH 默认是 22"
+  },
+  "auto_shutdown": {
+    "description": "任务完成后自动关机",
+    "type": "bool",
+    "default": true,
+    "hint": "三月七助手执行完毕后是否自动关闭电脑"
+  },
+  "selected_tasks": {
+    "description": "选择要执行的任务（可多选）",
+    "type": "list",
+    "default": ["main"],
+    "hint": "至少选择一个任务，按执行顺序排列",
+    "items": {
+      "type": "string",
+      "options": ["main", "daily", "weekly", "universe_gui", "forgottenhall", "echo_of_war", "assignment", "quest"]
+    }
+  }
+}

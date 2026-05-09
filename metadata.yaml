@@ -1,0 +1,12 @@
+name: "starrail-auto"
+display_name: "崩铁体力自动化"
+short_desc: "崩铁体力自动管理 + 远程PC唤醒 + 三月七助手联动。自动计算体力恢复时间，到点唤醒电脑跑任务，闭环关机。"
+desc: "崩铁体力自动化管理插件。自动计算体力恢复时间，通过 WOL 唤醒 Windows PC，SSH 运行三月七助手清体力/做日常，每日自动重置循环。支持 WebUI 配置任务选项。"
+version: "1.0.0"
+author: "AstrBot"
+repo: "https://github.com/AstrBotDevs/astrbot_plugin_starrail_automation"
+astrbot_version: ">=4.16"
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
