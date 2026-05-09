@@ -91,9 +91,7 @@ class StarRailAutoPlugin(Star):
         stamina_needed = threshold - stamina
         if stamina_needed <= 0:
             yield event.plain_result(f"当前体力 {stamina}，已达到阈值 {threshold}，立即触发清体力！")
-            results = await self._run_cleanup(event)
-            for result in results:
-                yield result
+            asyncio.create_task(self._execute_cleanup(None))
             return
         wait_minutes = stamina_needed * 6
         self.trigger_time = self.last_update_time + timedelta(minutes=wait_minutes)
@@ -109,9 +107,7 @@ class StarRailAutoPlugin(Star):
     async def handle_cleanup(self, event: AstrMessageEvent):
         """手动触发清体力"""
         yield event.plain_result("正在执行清体力任务...")
-        results = await self._run_cleanup(event)
-        for result in results:
-            yield result
+        asyncio.create_task(self._execute_cleanup(None))
 
     @filter.command("体力重置")
     async def handle_reset(self, event: AstrMessageEvent):
@@ -140,8 +136,7 @@ class StarRailAutoPlugin(Star):
                 yield event.plain_result("还没设置体力，请先告诉体力值（或 /体力设置 <数值>）")
             else:
                 yield event.plain_result(f"当前体力 {self.current_stamina}，正在执行...")
-                for result in await self._run_cleanup(event):
-                    yield result
+                asyncio.create_task(self._execute_cleanup(None))
 
     # ========== 体力设置逻辑 ==========
 
@@ -169,8 +164,7 @@ class StarRailAutoPlugin(Star):
 
         if stamina_needed <= 0:
             yield event.plain_result(f"当前体力 {stamina}，已达到阈值 {threshold}，立即触发清体力！")
-            for result in await self._run_cleanup(event):
-                yield result
+            asyncio.create_task(self._execute_cleanup(None))
             return
 
         wait_minutes = stamina_needed * 6
@@ -548,12 +542,6 @@ class StarRailAutoPlugin(Star):
             return None
 
 
-    async def _run_cleanup(self, event):
-        """执行清体力，收集所有结果"""
-        results = []
-        async for r in self._execute_cleanup(event):
-            results.append(r)
-        return results
     async def terminate(self):
         if self.trigger_task and not self.trigger_task.done():
             self.trigger_task.cancel()
