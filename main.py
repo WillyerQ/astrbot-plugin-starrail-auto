@@ -331,7 +331,18 @@ class StarRailAutoPlugin(Star):
                 f'if exist "{updater_path}" ("{updater_path}" 2>&1) else (echo UPDATER_NOT_FOUND)',
                 timeout=120
             )
-            update_output = stdout.read().decode("utf-8", errors="ignore") + stderr.read().decode("utf-8", errors="ignore")
+            try:
+                # 等待命令完成（带超时），再读输出
+                exit_status = stdout.channel.recv_exit_status(timeout=120)
+                update_output = stdout.read().decode("utf-8", errors="ignore")
+                stderr_text = stderr.read().decode("utf-8", errors="ignore")
+                if stderr_text:
+                    update_output += "\n" + stderr_text
+            except Exception:
+                # 超时则强制关闭通道
+                info_log("⏰ 更新检查超时，跳过更新")
+                update_output = "UPDATER_TIMEOUT"
+                stdout.channel.close()
 
             if "UPDATER_NOT_FOUND" in update_output:
                 if event: info_log("⚠️ 未找到更新程序，跳过更新")
