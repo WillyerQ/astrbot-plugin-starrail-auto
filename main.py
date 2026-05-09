@@ -493,10 +493,9 @@ class StarRailAutoPlugin(Star):
             return local[key]
         try:
             val = self.context.get_config(key)
-            if isinstance(val, (str, int, float, bool, list, dict)):
+            # AstrBotConfig 继承 dict，不能用 isinstance 区分
+            if val is not None and type(val).__name__ != "AstrBotConfig":
                 return val
-            if val is None:
-                return default
         except Exception:
             pass
         return default
