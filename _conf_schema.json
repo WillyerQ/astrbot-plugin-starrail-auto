@@ -1,12 +1,12 @@
 {
   "pc_ip": {
-    "description": "天选 6 Pro 的内网 IP 地址",
+    "description": "个人电脑的内网 IP 地址",
     "type": "string",
     "hint": "如 192.168.1.100",
     "obvious_hint": true
   },
   "pc_mac": {
-    "description": "天选 6 Pro 的 MAC 地址（WOL 唤醒用）",
+    "description": "个人电脑的 MAC 地址（WOL 唤醒用）",
     "type": "string",
     "hint": "如 AA:BB:CC:DD:EE:FF",
     "obvious_hint": true
