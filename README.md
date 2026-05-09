@@ -8,7 +8,7 @@
 | 功能 | 说明 |
 |------|------|
 | ⏱ 体力计算 | 输入当前体力值，自动计算到达阈值（默认160）的精确时间 |
-| 📡 WOL 网络唤醒 | 到点自动发送魔术包唤醒你的 Windows PC |
+| 📡 WOL 网络唤醒 | 到点自动通过 etherwake/wakeonlan 唤醒你的 Windows PC |
 | 🖥 SSH + 计划任务 | 通过 schtasks 在用户桌面会话中执行任务，**支持保留锁屏** |
 | 🔄 任务可配置 | WebUI 选择要执行的任务（日常/周常/模拟宇宙等） |
 | 🔌 自动关机 | 任务完成后自动关闭电脑，支持开关 |
@@ -19,8 +19,9 @@
 **前置条件：**
 - AstrBot v4.16+
 - 目标 PC：Windows 10/11，开启 OpenSSH Server
-- 目标 PC：支持 WOL
+- 目标 PC：支持 WOL（网卡 + BIOS 均需开启）
 - 目标 PC：安装 [三月七助手](https://github.com/moesnow/March7thAssistant) + 崩坏星穹铁道
+- AstrBot 所在机器：已安装 `etherwake` 或 `wakeonlan`（Docker 容器已预装）
 
 **步骤：**
 1. 插件放到 `AstrBot/data/plugins/` 下
@@ -34,7 +35,12 @@
 |--------|------|------|------|
 | PC_IP | string | ✅ | 目标电脑内网IP |
 | PC_MAC | string | ✅ | MAC地址（WOL用） |
-| BROADCAST_IP | string | ❌ | WOL广播地址，默认192.168.1.255。根据你局域网网段填，如小米路由用192.168.31.255 |
+| BROADCAST_IP | string | ❌ | WOL广播地址，默认自动从PC_IP推算（如192.168.31.206 → 192.168.31.255） |
+| WOL_METHOD | string | ❌ | WOL方式：`udp`=容器直发(默认/etherwake)，`ssh`=通过NAS宿主机转发 |
+| NAS_SSH_HOST | string | ❌ | 仅WOL_METHOD=ssh时，NAS SSH地址（默认127.0.0.1） |
+| NAS_SSH_PORT | int | ❌ | 仅WOL_METHOD=ssh时，NAS SSH端口（默认22） |
+| NAS_SSH_USER | string | ❌ | 仅WOL_METHOD=ssh时，NAS SSH用户名（默认root） |
+| NAS_SSH_PASSWORD | string | ❌ | 仅WOL_METHOD=ssh时，NAS SSH密码 |
 | PC_USERNAME | string | ✅ | Windows登录用户名 |
 | PC_PASSWORD | string | ✅ | Windows登录密码 |
 | MARCH7TH_PATH | string | ✅ | 三月七助手exe完整路径 |
@@ -102,7 +108,7 @@ PyAutoGUI 可正常截屏+模拟点击
 
 ## 循环流程
 
-输入体力 → 计算时间 → 设定时器 → 到点WOL唤醒PC → 计划任务跑三月七 → 自动关机 → 每日重置
+输入体力 → 计算时间 → 设定时器 → 到点etherwake唤醒PC → 计划任务跑三月七 → 自动关机 → 每日重置
 
 ## 注意事项
 
@@ -112,3 +118,12 @@ PyAutoGUI 可正常截屏+模拟点击
 4. 建议关闭睡眠和休眠：`powercfg /change standby-timeout-ac 0`
 5. 三月七助手要求游戏分辨率 **1920×1080**，不支持 HDR
 6. 重启 AstrBot 后体力数据会丢失，需重新 `/体力设置`
+7. WOL 使用系统 `etherwake`（优先）或 `wakeonlan` 客户端发送唤醒包，Docker 容器已预装。如果运行在 host 网络模式下，UDP 直发也能正常工作
+
+## FAQ
+
+**Q: WOL 唤醒失败怎么办？**
+A: 检查日志显示的是 `etherwake` 还是 `原始 UDP`。如果是 `原始 UDP`，说明容器内缺少 etherwake 工具。如果是 `etherwake` 成功但 PC 没醒，请检查：① PC 网卡是否开启 WOL（设备管理器 → 网卡 → 高级 → 魔术包唤醒）② BIOS 是否开启 WOL ③ 广播地址是否正确（看日志中的 IP 网段）
+
+**Q: Docker 容器网络怎么配？**
+A: 默认 `wol_method=udp` 即可，插件会优先用系统 etherwake 工具发送，无需 host 网络模式。如果仍失败，可尝试 `wol_method=ssh` 通过宿主机转发。
