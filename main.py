@@ -364,9 +364,9 @@ class StarRailAutoPlugin(Star):
             selected_tasks = self._get_config("selected_tasks", ["main"])
             if isinstance(selected_tasks, list) and len(selected_tasks) > 0:
                 task_args = " ".join(selected_tasks)
-                task_cmd = f'{march7th_path} {task_args} --exit'
+                task_cmd = f'{march7th_path} {task_args}'
             else:
-                task_cmd = f'{march7th_path} main --exit'
+                task_cmd = f'{march7th_path} main'
 
             if event:
                 task_names = {
