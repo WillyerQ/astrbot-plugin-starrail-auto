@@ -8,6 +8,7 @@ SSH 运行三月七助手清体力，每日自动重置。
 import asyncio
 import os
 import paramiko
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
@@ -15,6 +16,40 @@ from PIL import Image, ImageDraw, ImageFont
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+
+# ====== 插件文件日志 ======
+_plugin_dir = os.path.dirname(os.path.abspath(__file__))
+_log_dir = os.path.join(_plugin_dir, "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_file_logger = logging.getLogger("starrail_auto")
+_file_logger.setLevel(logging.DEBUG)
+_handler = logging.FileHandler(
+    os.path.join(_log_dir, f"starrail_{datetime.now().strftime('%Y%m%d')}.log"),
+    encoding="utf-8"
+)
+_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"
+))
+_file_logger.addHandler(_handler)
+_file_logger.propagate = False
+
+def debug_log(msg: str):
+    """写 debug 日志到文件（同时输出到 AstrBot 日志）"""
+    _file_logger.debug(msg)
+    logger.debug(f"[starrail-auto] {msg}")
+
+def info_log(msg: str):
+    _file_logger.info(msg)
+    info_log(f"[starrail-auto] {msg}")
+
+def warn_log(msg: str):
+    _file_logger.warning(msg)
+    warn_log(f"[starrail-auto] {msg}")
+
+def error_log(msg: str):
+    _file_logger.error(msg)
+    error_log(f"[starrail-auto] {msg}")
+# ======
 
 # 时区
 CST = timezone(timedelta(hours=8))
@@ -30,7 +65,7 @@ class StarRailAutoPlugin(Star):
         self.trigger_task = None
 
     async def initialize(self):
-        logger.info("崩铁体力自动化插件已加载")
+        info_log("崩铁体力自动化插件已加载")
 
     # ========== 命令处理（优先于 LLM） ==========
 
@@ -341,7 +376,7 @@ class StarRailAutoPlugin(Star):
             error_md += "**调用栈：**\n```\n" + tb[-1500:] + "\n```\n"
             error_md += "\n---\n*由 starrail-auto 插件自动报告*"
             yield event.plain_result(error_md)
-            logger.error(f"插件执行崩溃: {e}\
+            error_log(f"插件执行崩溃: {e}\
 {tb}")
 
     # ========== 定时任务 ==========
@@ -358,10 +393,10 @@ class StarRailAutoPlugin(Star):
             self.trigger_task.cancel()
         async def delayed():
             await asyncio.sleep(delay)
-            logger.info("定时触发：执行清体力任务")
+            info_log("定时触发：执行清体力任务")
             await self._execute_cleanup(None)
         self.trigger_task = asyncio.create_task(delayed())
-        logger.info(f"定时任务已设置，{delay/60:.1f} 分钟后触发")
+        info_log(f"定时任务已设置，{delay/60:.1f} 分钟后触发")
 
     # ========== 工具方法 ==========
 
@@ -375,7 +410,7 @@ class StarRailAutoPlugin(Star):
     async def _send_wol(mac: str, broadcast_ip: str = "192.168.1.255"):
         mac_clean = mac.replace(":", "").replace("-", "").replace(" ", "")
         if len(mac_clean) != 12:
-            logger.error(f"无效 MAC: {mac}")
+            error_log(f"无效 MAC: {mac}")
             return
         magic = bytes.fromhex("FF" * 6 + mac_clean * 16)
         try:
@@ -386,9 +421,9 @@ class StarRailAutoPlugin(Star):
             s.sendto(magic, (broadcast_ip, 9))
             s.sendto(magic, (broadcast_ip, 7))
             s.close()
-            logger.info(f"WOL 已发送至 {mac}")
+            info_log(f"WOL 已发送至 {mac}")
         except Exception as e:
-            logger.error(f"WOL 失败: {e}")
+            error_log(f"WOL 失败: {e}")
 
     def _get_help_text(self) -> str:
         return ("📋 **崩铁体力自动化 - 指令列表**\n\n"
@@ -476,10 +511,10 @@ class StarRailAutoPlugin(Star):
             return output_path
 
         except Exception as e:
-            logger.error(f"生成帮助图片失败: {e}")
+            error_log(f"生成帮助图片失败: {e}")
             return None
 
     async def terminate(self):
         if self.trigger_task and not self.trigger_task.done():
             self.trigger_task.cancel()
-            logger.info("定时任务已取消")
+            info_log("定时任务已取消")
