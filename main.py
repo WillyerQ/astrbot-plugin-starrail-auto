@@ -220,7 +220,7 @@ class StarRailAutoPlugin(Star):
         # cmd.exe 中 % 要加倍为 %% 才不会展开
         return s.replace("%", "%%").replace('"', '""')
 
-    async def _execute_cleanup(self, event: Optional[AstrMessageEvent] = None):
+    async def _execute_cleanup(self, event=None):
         """执行清体力任务：WOL → SSH → 更新检查 → 跑任务 → 报错日志"""
         pc_ip = self._get_config("pc_ip", "")
         pc_mac = self._get_config("pc_mac", "")
@@ -238,17 +238,17 @@ class StarRailAutoPlugin(Star):
 
         if not pc_mac or not pc_ip:
             msg = "⚠️ 未配置电脑信息，请在 WebUI 中填写 PC_IP 和 PC_MAC"
-            if event: yield event.plain_result(msg)
+            if event: info_log(msg)
             logger.warning(msg)
             return
 
         # 1. WOL 唤醒
-        if event: yield event.plain_result("📡 发送 WOL 唤醒信号...")
+        if event: info_log("📡 发送 WOL 唤醒信号...")
         await self._send_wol(pc_mac, pc_ip)
         await asyncio.sleep(45)
 
         # 2. SSH 连接
-        if event: yield event.plain_result("🔗 正在通过 SSH 连接电脑...")
+        if event: info_log("🔗 正在通过 SSH 连接电脑...")
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -260,7 +260,7 @@ class StarRailAutoPlugin(Star):
             updater_path = march7th_dir + "\\March7th Updater.exe"
 
             # 3. 先检查并运行更新
-            if event: yield event.plain_result("🔄 检查三月七助手更新...")
+            if event: info_log("🔄 检查三月七助手更新...")
             stdin, stdout, stderr = ssh.exec_command(
                 f'if exist "{updater_path}" ("{updater_path}" 2>&1) else (echo UPDATER_NOT_FOUND)',
                 timeout=120
@@ -268,9 +268,9 @@ class StarRailAutoPlugin(Star):
             update_output = stdout.read().decode("utf-8", errors="ignore") + stderr.read().decode("utf-8", errors="ignore")
 
             if "UPDATER_NOT_FOUND" in update_output:
-                if event: yield event.plain_result("⚠️ 未找到更新程序，跳过更新")
+                if event: info_log("⚠️ 未找到更新程序，跳过更新")
             else:
-                if event: yield event.plain_result("✅ 更新检查完成")
+                if event: info_log("✅ 更新检查完成")
 
             # 4. 构建任务命令
             selected_tasks = self._get_config("selected_tasks", ["main"])
@@ -287,7 +287,7 @@ class StarRailAutoPlugin(Star):
                     "echo_of_war": "历战余响", "assignment": "委托", "quest": "任务"
                 }
                 labels = [task_names.get(t, t) for t in (selected_tasks if isinstance(selected_tasks, list) else ["main"])]
-                yield event.plain_result(f"⚙️ 即将执行：{' → '.join(labels)}")
+                info_log(f"⚙️ 即将执行：{' → '.join(labels)}")
 
             # 5. 通过计划任务运行
             schtasks_name = "StarRailAutoTemp"
@@ -304,10 +304,10 @@ class StarRailAutoPlugin(Star):
 
             if exit_code != 0:
                 err = stderr.read().decode("utf-8", errors="ignore")[:300]
-                yield event.plain_result(f"⚠️ 创建任务异常: {err}")
+                info_log(f"⚠️ 创建任务异常: {err}")
 
             # 6. 轮询等待完成
-            yield event.plain_result("⏳ 等待任务完成...")
+            info_log("⏳ 等待任务完成...")
             task_done = False
             for _ in range(30):
                 await asyncio.sleep(60)
@@ -365,7 +365,7 @@ class StarRailAutoPlugin(Star):
 
             # 9. 结果
             if task_done:
-                yield event.plain_result("✅ 三月七助手任务已完成！")
+                info_log("✅ 三月七助手任务已完成！")
             else:
                 error_md = "## ❌ 三月七助手执行异常\n\n"
                 error_md += "**状态：** 任务超时或未正常完成\n\n"
@@ -375,12 +375,12 @@ class StarRailAutoPlugin(Star):
                     error_md += "**错误日志：** 未找到日志文件\n"
                 error_md += "\n---\n*由 starrail-auto 插件自动报告*"
 
-                yield event.plain_result("⏰ 任务可能异常，正在发送报错日志...")
-                yield event.plain_result(error_md)
+                info_log("⏰ 任务可能异常，正在发送报错日志...")
+                info_log(error_md)
 
             # 10. 自动关机
             if self._get_config("auto_shutdown", True):
-                yield event.plain_result("🔌 电脑即将关机")
+                info_log("🔌 电脑即将关机")
                 try:
                     cs3 = paramiko.SSHClient()
                     cs3.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -393,7 +393,7 @@ class StarRailAutoPlugin(Star):
 
         except Exception as e:
             err_msg = f"❌ 操作失败：{str(e)}"
-            if event: yield event.plain_result(err_msg)
+            if event: info_log(err_msg)
             # 发送详细报错
             import traceback
             tb = traceback.format_exc()
@@ -402,7 +402,7 @@ class StarRailAutoPlugin(Star):
             error_md += "**错误信息：**\n```\n" + str(e) + "\n```\n\n"
             error_md += "**调用栈：**\n```\n" + tb[-1500:] + "\n```\n"
             error_md += "\n---\n*由 starrail-auto 插件自动报告*"
-            yield event.plain_result(error_md)
+            info_log(error_md)
             error_log(f"插件执行崩溃: {e}\
 {tb}")
 
