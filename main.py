@@ -60,12 +60,14 @@ CST = timezone(timedelta(hours=8))
 
 @register("starrail_auto", "AstrBot", "崩铁体力自动化管理", "1.2.0")
 class StarRailAutoPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
         self.current_stamina = None
         self.last_update_time = None
         self.trigger_time = None
         self.trigger_task = None
+        # 保存 WebUI 配置（AstrBotConfig 是 dict 子类，可直接用）
+        self.plugin_config = config or {}
 
     async def initialize(self):
         info_log("崩铁体力自动化插件已加载")
@@ -140,6 +142,16 @@ class StarRailAutoPlugin(Star):
         key, value = pair.split("=", 1)
         self._save_local_config({key.strip(): value.strip()})
         yield event.plain_result(f"✅ 已保存: {key.strip()} = {value.strip()}")
+
+    @filter.command("体力重置配置")
+    async def handle_reset_config(self, event: AstrMessageEvent):
+        """删除本地配置"""
+        path = self._config_path()
+        if os.path.exists(path):
+            os.remove(path)
+            yield event.plain_result("✅ 本地配置已删除，请重新设置")
+        else:
+            yield event.plain_result("ℹ️ 本地配置不存在")
 
     @filter.command("体力帮助")
     async def handle_help(self, event: AstrMessageEvent):
@@ -470,7 +482,8 @@ class StarRailAutoPlugin(Star):
                 with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                warn_log(f"读取本地配置失败: {e}")
+                warn_log(f"配置损坏，重置: {e}")
+                os.remove(path)
         return {}
 
     def _save_local_config(self, cfg: dict):
@@ -487,15 +500,19 @@ class StarRailAutoPlugin(Star):
             error_log(f"保存配置失败: {e}")
 
     def _get_config(self, key: str, default=None):
-        """获取配置：优先从本地 JSON，其次从 WebUI"""
+        """获取配置：优先从本地 JSON，其次从 WebUI 配置"""
+        # 1. 本地 JSON 文件（/体力配置 命令写入的）优先
         local = self._load_local_config()
         if key in local:
             return local[key]
+        # 2. WebUI 配置（通过 _conf_schema.json 在插件管理页面填写）
+        if hasattr(self, "plugin_config") and key in self.plugin_config:
+            return self.plugin_config[key]
+        # 3. 安全兜底：从全局 AstrBotConfig 查找
         try:
-            val = self.context.get_config(key)
-            # AstrBotConfig 继承 dict，不能用 isinstance 区分
-            if val is not None and type(val).__name__ != "AstrBotConfig":
-                return val
+            conf = self.context.get_config()
+            if conf and key in conf:
+                return conf[key]
         except Exception:
             pass
         return default
