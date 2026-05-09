@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
@@ -67,55 +67,76 @@ class StarRailAutoPlugin(Star):
     async def initialize(self):
         info_log("崩铁体力自动化插件已加载")
 
-    # ========== 命令处理（优先于 LLM） ==========
+    # ========== 命令处理（@filter.command 注册，优先于 LLM） ==========
 
-    async def on_message(self, event: AstrMessageEvent):
-        """处理以 /体力 开头的插件指令，阻止 LLM 拦截"""
-        message_str = event.message_str.strip()
-
-        # 只拦截插件专属指令
-        if not message_str.startswith("/体力"):
+    @filter.command("体力设置")
+    async def handle_set_stamina(self, event: AstrMessageEvent):
+        """设置体力值：/体力设置 <数值>"""
+        parts = (event.message_str or "").strip().split()
+        if len(parts) < 2:
+            yield event.plain_result("格式：/体力设置 <数值>，如 /体力设置 80")
             return
-
-        # 阻止 LLM 继续处理本条消息
-        event.stop_event()
-
-        if message_str.startswith("/体力设置"):
-            for result in self._handle_set_stamina(message_str, event):
-                yield result
-        elif message_str == "/体力状态":
-            yield event.plain_result(self._get_status_text())
-        elif message_str == "/清体力":
-            yield event.plain_result("正在执行清体力任务...")
+        try:
+            stamina = int(parts[1])
+            if not (0 <= stamina <= 240):
+                yield event.plain_result("体力值应在 0-240 之间")
+                return
+        except ValueError:
+            yield event.plain_result("格式：/体力设置 <数值>，如 /体力设置 80")
+            return
+        self.current_stamina = stamina
+        self.last_update_time = datetime.now(CST)
+        threshold = self._get_config("stamina_threshold", 160)
+        stamina_needed = threshold - stamina
+        if stamina_needed <= 0:
+            yield event.plain_result(f"当前体力 {stamina}，已达到阈值 {threshold}，立即触发清体力！")
             for result in self._execute_cleanup(event):
                 yield result
-        elif message_str in ("/体力重置", "/体力帮助"):
-            if message_str == "/体力重置":
-                self.current_stamina = None
-                self.last_update_time = None
-                self.trigger_time = None
-                yield event.plain_result("体力数据已重置，请用 /体力设置 <数值> 设置初始值")
-            else:
-                img_path = await self._generate_help_image()
-                if img_path and os.path.exists(img_path):
-                    yield event.image_result(img_path)
-                else:
-                    yield event.plain_result(self._get_help_text())
+            return
+        wait_minutes = stamina_needed * 6
+        self.trigger_time = self.last_update_time + timedelta(minutes=wait_minutes)
+        self._schedule_trigger()
+        yield event.plain_result(f"✅ 已记录！当前体力：{stamina}\n📊 距阈值 {threshold} 还差 {stamina_needed} 点\n⏱ 需要等待 {wait_minutes} 分钟（{wait_minutes//60}小时{wait_minutes%60}分钟）\n🔔 预计触发时间：{self.trigger_time.strftime(chr(37)+chr(72)+chr(58)+chr(37)+chr(77))}")
+
+    @filter.command("体力状态")
+    async def handle_status(self, event: AstrMessageEvent):
+        """查询体力状态"""
+        yield event.plain_result(self._get_status_text())
+
+    @filter.command("清体力")
+    async def handle_cleanup(self, event: AstrMessageEvent):
+        """手动触发清体力"""
+        yield event.plain_result("正在执行清体力任务...")
+        for result in self._execute_cleanup(event):
+            yield result
+
+    @filter.command("体力重置")
+    async def handle_reset(self, event: AstrMessageEvent):
+        """重置体力数据"""
+        self.current_stamina = None
+        self.last_update_time = None
+        self.trigger_time = None
+        yield event.plain_result("体力数据已重置，请用 /体力设置 <数值> 设置初始值")
+
+    @filter.command("体力帮助")
+    async def handle_help(self, event: AstrMessageEvent):
+        """显示帮助"""
+        img_path = await self._generate_help_image()
+        if img_path and os.path.exists(img_path):
+            yield event.image_result(img_path)
         else:
-            yield event.plain_result("未知指令。可用：/体力设置、/体力状态、/清体力、/体力重置")
+            yield event.plain_result(self._get_help_text())
 
     async def on_llm_request(self, event: AstrMessageEvent):
         """自然语言触发——仅处理不含 / 前缀的消息"""
-        msg = event.message_str.strip()
-
+        msg = (event.message_str or "").strip()
         if msg.startswith("/"):
             return
-
         if any(kw in msg for kw in ["崩铁日常", "跑崩铁", "清体力啦"]):
             if self.current_stamina is None:
-                yield event.plain_result("还没设置体力，请先告诉我你现在的体力值（或使用 /体力设置 <数值>）")
+                yield event.plain_result("还没设置体力，请先告诉体力值（或 /体力设置 <数值>）")
             else:
-                yield event.plain_result(f"当前体力 {self.current_stamina}，正在执行清体力...")
+                yield event.plain_result(f"当前体力 {self.current_stamina}，正在执行...")
                 for result in self._execute_cleanup(event):
                     yield result
 
