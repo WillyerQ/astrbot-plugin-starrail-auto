@@ -288,16 +288,33 @@ class StarRailAutoPlugin(Star):
         nas_password = self._get_config("nas_ssh_password", "")
         await self._send_wol(pc_mac, broadcast_ip, wol_method, nas_user,
                              nas_host, nas_port, nas_password)
-        await asyncio.sleep(45)
+        # 给电脑 90 秒开机进系统（部分 PC 需要更长时间）
+        await asyncio.sleep(90)
 
-        # 2. SSH 连接
+        # 2. SSH 连接（带重试）
         if event: info_log("🔗 正在通过 SSH 连接电脑...")
-        try:
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(hostname=pc_ip, port=ssh_port,
-                        username=pc_username, password=pc_password, timeout=20)
+        ssh = None
+        ssh_connected = False
+        for attempt in range(1, 4):
+            try:
+                ssh = paramiko.SSHClient()
+                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                ssh.connect(hostname=pc_ip, port=ssh_port,
+                            username=pc_username, password=pc_password, timeout=20)
+                ssh_connected = True
+                break
+            except Exception as e:
+                if attempt < 3:
+                    wait = attempt * 30
+                    info_log(f"⏳ SSH 连接失败（第{attempt}次），{wait}秒后重试... ({e})")
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
+        if not ssh_connected:
+            raise Exception(f"SSH 连接失败（已重试3次）")
+
+        try:
             # 解析三月七目录和更新器路径
             march7th_dir = march7th_path.rsplit("\\", 1)[0] if "\\" in march7th_path else march7th_path.rsplit("/", 1)[0]
             updater_path = march7th_dir + "\\March7th Updater.exe"
